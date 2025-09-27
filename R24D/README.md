@@ -9,7 +9,8 @@
 
 ### Tasmota configure
 - {"NAME":"Human Detection Sensor Kit","GPIO":[0,0,0,0,3232,3200,640,608,0,0,0,0,0,0,0,0,0,0,0,0,0,0],"FLAG":0,"BASE":1}
-
+- MQTT: set server ip
+- NOTE  -- clicking the reset button on the main page, has a tendency to delete all the configuration settings
 
 ### Tasmota install  mmwave driver
 Console:
