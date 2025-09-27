@@ -8,10 +8,11 @@ import json
 
 var topic = tasmota.cmd('Status ', true)['Status']['Topic']
 
-# --- Live MQTT state helper ---------------------------------------------------
+# --- Live MQTT state helper with de-dupe -------------------------------------
 var _r24d = { "Presence":"Unknown", "Activity":"None", "Motion":"None", "Body Movement Parameter":0 }
+var _r24d_last = { "Presence": nil, "Activity": nil, "Motion": nil }   # last published
 
-def _pub(x)          # publish SENSOR JSON via MQTT
+def _pub(x)          # existing helper used elsewhere in your file
   mqtt.publish("tele/" + topic + "/SENSOR", json.dump(x), false)
 end
 
@@ -19,21 +20,41 @@ def _r24d_publish()
   _pub({ "R24DVD1": { "Human": _r24d } })
 end
 
-def _r24d_set_opt(presence, activity, motion, bmp)
+# presence/activity/motion/bmp, publish? (nil => true)
+def _r24d_set_opt(presence, activity, motion, bmp, publish)
+  if publish == nil publish = true end
+
+  # update fields (bmp can be silent)
   if presence != nil _r24d["Presence"] = presence end
   if activity != nil _r24d["Activity"] = activity end
   if motion   != nil _r24d["Motion"]   = motion   end
   if bmp      != nil _r24d["Body Movement Parameter"] = bmp end
-  # Derive presence from activity/bmp
+
+  # derive presence from activity/bmp
   var act = _r24d["Activity"]
   var ib  = int(_r24d["Body Movement Parameter"])
   if (act == "Active") || (act == "Still") || (ib > 0)
     _r24d["Presence"] = "Occupied"
   end
-  _r24d_publish()
+
+  # only publish if Presence/Activity/Motion CHANGED vs last publish
+  var changed = false
+  if _r24d_last["Presence"] != _r24d["Presence"] changed = true end
+  if _r24d_last["Activity"] != _r24d["Activity"] changed = true end
+  if _r24d_last["Motion"]   != _r24d["Motion"]   changed = true end
+
+  if publish && changed
+    _r24d_publish()
+    # update last-published snapshot
+    _r24d_last["Presence"] = _r24d["Presence"]
+    _r24d_last["Activity"] = _r24d["Activity"]
+    _r24d_last["Motion"]   = _r24d["Motion"]
+  end
 end
 
+# Optional: query current live state from the console
 tasmota.add_cmd("R24DState", def(cmd,idx,p,pj) tasmota.resp_cmnd_done_json({"R24DVD1":{"Human":_r24d}}) end)
+# ----------------------------------------------------------------------------- 
 # -----------------------------------------------------------------------------
 
 
@@ -233,37 +254,43 @@ class micradar : Driver
     val.insert(field, data)
     result.insert(cw, val)
 
-# FIX: use real keys (cw/field) instead of undefined a1/a2
-if self.buffer.find(cw) != nil
-  if self.buffer[cw].find(field) != data
-    self.buffer[cw].setitem(field, data)
-    print(f"Buffer update {cw}: {field} with {data}")
+# FIX: use real keys (cw/field) instead of undefined a1/a2    
+# publish per-field ONLY for non-Human OR Human fields that are NOT Presence/Activity/Motion/BMP
+    var is_human = (cw == self.word[0x80]["name"])
+    var is_bmp   = (is_human && field == "Body Movement Parameter")
+    var is_act   = (is_human && field == "Activity")
+    var is_mot   = (is_human && field == "Motion")
+    var is_pres  = (is_human && field == "Presence")
+    var allow_direct_pub = !(is_bmp || is_act || is_mot || is_pres)
 
-    # Do NOT publish on Body Movement Parameter changes
-    var is_bmp = (cw == self.word[0x80]["name"] && field == "Body Movement Parameter")
-    if !is_bmp
-      _pub({ "R24DVD1": result })
+    if self.buffer.find(cw) != nil
+      if self.buffer[cw].find(field) != data
+        self.buffer[cw].setitem(field, data)
+        print(f"Buffer update {cw}: {field} with {data}")
+        if allow_direct_pub
+          _pub({ "R24DVD1": result })
+        end
+      end
+    else
+      self.publish2log(f"{field}: {data}", 2)
     end
-  end
-else
-  self.publish2log(f"{field}: {data}", 2)
-end
 
-    # Keep live Human state in sync and derive Presence
-    if cw == self.word[0x80]["name"]   # "Human"
-      if field == "Activity"
+    # live-state machine (BMP never publishes; P/A/M only publish on change)
+    if is_human
+      if is_act
         var act = str(data)
         var mot = (act == "Active" ? "Motion" : (act == "Still" ? "Micro" : "None"))
-        _r24d_set_opt(nil, act, mot, nil)
-      elif field == "Body Movement Parameter"
-        _r24d_set_opt(nil, nil, nil, data, false)
-      elif field == "Motion"
-        _r24d_set_opt(nil, nil, str(data), nil)
-      elif field == "Presence"
-        _r24d_set_opt(str(data), nil, nil, nil)
+        _r24d_set_opt(nil, act, mot, nil, true)
+      elif is_bmp
+        _r24d_set_opt(nil, nil, nil, data, false)   # silent
+      elif is_mot
+        _r24d_set_opt(nil, nil, str(data), nil, true)
+      elif is_pres
+        _r24d_set_opt(str(data), nil, nil, nil, true)
       end
     end
-  end
+
+
 
   def parse_config(msg)
     var field   = self.id_name(msg)
