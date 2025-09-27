@@ -233,16 +233,21 @@ class micradar : Driver
     val.insert(field, data)
     result.insert(cw, val)
 
-    # FIX: use real keys (cw/field) instead of undefined a1/a2
-    if self.buffer.find(cw) != nil
-      if self.buffer[cw].find(field) != data
-        self.buffer[cw].setitem(field, data)
-        print(f"Buffer update {cw}: {field} with {data}")
-        _pub({ "R24DVD1": result })
-      end
-    else
-      self.publish2log(f"{field}: {data}", 2)
+# FIX: use real keys (cw/field) instead of undefined a1/a2
+if self.buffer.find(cw) != nil
+  if self.buffer[cw].find(field) != data
+    self.buffer[cw].setitem(field, data)
+    print(f"Buffer update {cw}: {field} with {data}")
+
+    # Do NOT publish on Body Movement Parameter changes
+    var is_bmp = (cw == self.word[0x80]["name"] && field == "Body Movement Parameter")
+    if !is_bmp
+      _pub({ "R24DVD1": result })
     end
+  end
+else
+  self.publish2log(f"{field}: {data}", 2)
+end
 
     # Keep live Human state in sync and derive Presence
     if cw == self.word[0x80]["name"]   # "Human"
@@ -251,7 +256,7 @@ class micradar : Driver
         var mot = (act == "Active" ? "Motion" : (act == "Still" ? "Micro" : "None"))
         _r24d_set_opt(nil, act, mot, nil)
       elif field == "Body Movement Parameter"
-        _r24d_set_opt(nil, nil, nil, data)
+        _r24d_set_opt(nil, nil, nil, data, false)
       elif field == "Motion"
         _r24d_set_opt(nil, nil, str(data), nil)
       elif field == "Presence"
