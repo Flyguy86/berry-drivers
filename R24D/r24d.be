@@ -1,4 +1,3 @@
-# v1.1 (ESP32-C3 / MR24HPC1)
 # Seeed MR24HPC1 / MicRadar R24DVD1 24 GHz mmWave radar – Tasmota Berry driver
 # Base: blakadder/berry-drivers R24D (GPL-3.0)
 # Edits: strict-mode fixes; MQTT publishing (no tasmota.publish_sensor); live Presence/Activity/Motion; SetDelay 0..8
