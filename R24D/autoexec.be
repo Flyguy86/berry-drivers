@@ -1,7 +1,7 @@
 tasmota.cmd("SerialLog 0")
 tasmota.cmd("Baudrate 115200")
+load("r24d.bec")
 tasmota.cmd("setScene 4")
 tasmota.cmd("TelePeriod 30")
 tasmota.cmd("SetSensitivity 2")
 tasmota.cmd("SetDelay 2")
-load("r24d.bec")
