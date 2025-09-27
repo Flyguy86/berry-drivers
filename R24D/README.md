@@ -1,5 +1,18 @@
 # R24D
 
+
+
+Tasmota install 
+
+Console:
+- Backlog UfsDelete2 r24d.bec; UfsDelete2 r24d.be
+- Br tasmota.urlfetch("https://raw.githubusercontent.com/Flyguy86/berry-drivers/refs/heads/main/R24D/r24d.be","r24d.be")
+- Br tasmota.compile("r24d.be")
+- Br load('r24d.bec')
+- Br tasmota.cmd("UfsDelete2 r24d.be")
+
+
+
 <img src="../img/r24d.jpg" align=right width=30%></img>
 
 R24D is a low cost 24Ghz mmWave radar with presence and movement detection.
