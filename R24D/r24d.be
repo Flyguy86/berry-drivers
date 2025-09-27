@@ -389,7 +389,7 @@ class micradar : Driver
 end  # <<< end class micradar
 
 # ----- instantiate + register -------------------------------------------------
-radar = micradar()
+var radar = micradar()
 tasmota.add_driver(radar)
 radar.buffer_init()
 
