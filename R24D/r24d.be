@@ -1,4 +1,3 @@
-#- v1.1
 # Seeedstudio MR24HPC1 / MicRadar R24DVD1 24Ghz mmWave radar Tasmota driver
 # Source: https://github.com/blakadder/berry-drivers
 # Tasmota driver written in Berry | code by blakadder (GPL-3.0)
