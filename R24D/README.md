@@ -1,7 +1,10 @@
 # R24D
 ### USB flash Tasmota, base firmware
-- need esp flash commands
+## Python 
+- pip install esptool
+- python -m esptool --chip esp32c3 --port COM3 --baud 115200 --before no_reset --after no_reset chip_id
 - https://ota.tasmota.com/tasmota32/tasmota32c3.factory.bin
+- python -m esptool --chip esp32c3 -p COM3 -b 460800 write_flash -z 0x0 "C:\Users\bjgar\Downloads\tasmota32c3.factory.bin"
 
 ### Tasmota configure
 - {"NAME":"Human Detection Sensor Kit","GPIO":[0,0,0,0,3232,3200,640,608,0,0,0,0,0,0,0,0,0,0,0,0,0,0],"FLAG":0,"BASE":1}
@@ -14,6 +17,9 @@ Console:
 - Br tasmota.compile("r24d.be")
 - Br load('r24d.bec')
 - Br tasmota.cmd("UfsDelete2 r24d.be")
+
+
+
 
 
 
