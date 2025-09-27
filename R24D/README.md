@@ -3,6 +3,7 @@
 ## Python 
 - pip install esptool
 - python -m esptool --chip esp32c3 --port COM3 --baud 115200 --before no_reset --after no_reset chip_id
+- python -m esptool --chip esp32c3 -p COM3 erase_flash
 - https://ota.tasmota.com/tasmota32/tasmota32c3.factory.bin
 - python -m esptool --chip esp32c3 -p COM3 -b 460800 write_flash -z 0x0 "C:\Users\bjgar\Downloads\tasmota32c3.factory.bin"
 
