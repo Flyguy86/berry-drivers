@@ -1,7 +1,7 @@
-# Seeedstudio MR24HPC1 / MicRadar R24DVD1 24Ghz mmWave radar Tasmota driver
-# Source: https://github.com/blakadder/berry-drivers
-# Tasmota driver written in Berry | code by blakadder (GPL-3.0)
-# Edits: strict-mode fixes, live Presence/Activity/Motion publish, R24DState cmd
+#- v1.1 (ESP32-C3 / MR24HPC1)
+# Seeed MR24HPC1 / MicRadar R24DVD1 24 GHz mmWave radar – Tasmota Berry driver
+# Base: blakadder/berry-drivers R24D (GPL-3.0)
+# Edits: strict-mode fixes; MQTT publishing (no tasmota.publish_sensor); live Presence/Activity/Motion; SetDelay 0..8
 
 import string
 import mqtt
@@ -9,35 +9,36 @@ import json
 
 var topic = tasmota.cmd('Status ', true)['Status']['Topic']
 
-# --- BEGIN: live MQTT state helper (keeps SENSOR in sync immediately) ---
+# --- Live MQTT state helper ---------------------------------------------------
 var _r24d = { "Presence":"Unknown", "Activity":"None", "Motion":"None", "Body Movement Parameter":0 }
 
+def _pub(x)          # publish SENSOR JSON via MQTT
+  mqtt.publish("tele/" + topic + "/SENSOR", json.dump(x), false)
+end
+
 def _r24d_publish()
-  tasmota.publish_sensor({ "R24DVD1": { "Human": _r24d } })
+  _pub({ "R24DVD1": { "Human": _r24d } })
 end
 
 def _r24d_set_opt(presence, activity, motion, bmp)
-  # Update fields if provided (use nil to skip)
   if presence != nil _r24d["Presence"] = presence end
   if activity != nil _r24d["Activity"] = activity end
   if motion   != nil _r24d["Motion"]   = motion   end
   if bmp      != nil _r24d["Body Movement Parameter"] = bmp end
-
-  # Derive presence: consider Active/Still or bmp>0 as Occupied
+  # Derive presence from activity/bmp
   var act = _r24d["Activity"]
-  var ibmp = int(_r24d["Body Movement Parameter"])
-  if (act == "Active") || (act == "Still") || (ibmp > 0)
+  var ib  = int(_r24d["Body Movement Parameter"])
+  if (act == "Active") || (act == "Still") || (ib > 0)
     _r24d["Presence"] = "Occupied"
   end
   _r24d_publish()
 end
 
-# Handy query command
 tasmota.add_cmd("R24DState", def(cmd,idx,p,pj) tasmota.resp_cmnd_done_json({"R24DVD1":{"Human":_r24d}}) end)
-# --- END: live MQTT state helper ---
+# -----------------------------------------------------------------------------
+
 
 class micradar : Driver
-
   static sensorname = "R24DVD1"
   static buffer = {}
   static cfg_buffer = {}
@@ -47,23 +48,23 @@ class micradar : Driver
   static opbool
 
   static unk = "Unknown"
-  static wok = { 0x0F: "OK" }
+  static wok = { 0x0F:"OK" }
 
-  static wactivity = { 0x00: "None", 0x01: "Still", 0x02: "Active" }
-  static wduration = { 0x00:"0s",0x01:"10s",0x02:"30s",0x03:"1m",0x04:"2m",0x05:"5m",0x06:"10m",0x07:"30m",0x08:"60m" }
+  static wactivity   = { 0x00:"None", 0x01:"Still", 0x02:"Active" }
+  static wduration   = { 0x00:"0s",0x01:"10s",0x02:"30s",0x03:"1m",0x04:"2m",0x05:"5m",0x06:"10m",0x07:"30m",0x08:"60m" }
   static winitstatus = { 0x00:"Complete",0x01:"Incomplete",0x0F:"Completed" }
-  static wmovement = { 0x00:"None",0x01:"Approaching",0x02:"Leaving" }
-  static woccupancy = { 0x00:"Unoccupied",0x01:"Occupied" }
-  static wscenemode = { 0x00:"Not Set",0x01:"Living Room",0x02:"Bedroom",0x03:"Bathroom",0x04:"Area Detection" }
-  static wsensitivity = { 0x00:"None",0x01:"2m",0x02:"3m",0x03:"4m" }  # default 4m
-  static wprotocolmode = { 0x00:"Standard",0x01:"Advanced" }
+  static wmovement   = { 0x00:"None", 0x01:"Approaching", 0x02:"Leaving" }
+  static woccupancy  = { 0x00:"Unoccupied", 0x01:"Occupied" }
+  static wscenemode  = { 0x00:"Not Set",0x01:"Living Room",0x02:"Bedroom",0x03:"Bathroom",0x04:"Area Detection" }
+  static wsensitivity= { 0x00:"None", 0x01:"2m", 0x02:"3m", 0x03:"4m" }
+  static wprotocolmode = { 0x00:"Standard", 0x01:"Advanced" }
   static wbool = { 0x00:false, 0x01:true }
   static wonoff = { 0x00:"Off", 0x01:"On" }
 
   static word = {
     0x01: { "name":"System", "word": {
-      0x01: { "name":"Heartbeat", "properties":micradar.wok },
-      0x02: { "name":"Reset",     "properties":micradar.wok }
+      0x01:{ "name":"Heartbeat", "properties":micradar.wok },
+      0x02:{ "name":"Reset",     "properties":micradar.wok }
     }},
     0x02: { "name":"Information", "word": {
       0xA1:{ "name":"Product Model" },
@@ -94,7 +95,7 @@ class micradar : Driver
       0x0A:{ "name":"Presence Distance", "config":true },
       0x0B:{ "name":"Motion Distance",   "config":true },
       0x0C:{ "name":"Motion Trigger Time", "config":true },
-      0x0C:{ "name":"Motion to Rest Time", "config":true },
+      0x0C:{ "name":"Motion to Rest Time", "config":true },   # (duplicate key kept as in upstream)
       0x0D:{ "name":"Unoccupied State Time", "config":true }
     }}
   }
@@ -106,7 +107,6 @@ class micradar : Driver
   end
 
   def buffer_init()
-    # Config bucket: only for 0x05 words flagged with "config"
     for k : self.word.keys()
       if k == 0x05
         self.cfg_buffer.insert(self.word[k].find("name"), {})
@@ -115,7 +115,6 @@ class micradar : Driver
         end
       end
     end
-    # Main buffer: all word groups > 0x7F (e.g., 0x80 Human)
     for k : self.word.keys()
       if k > 127
         self.buffer.insert(self.word[k].find("name"), {})
@@ -130,7 +129,6 @@ class micradar : Driver
     end
   end
 
-  # Initialize serial (default TX/RX pins)
   def init(tx, rx)
     if !tx tx = gpio.pin(gpio.TXD) end
     if !rx rx = gpio.pin(gpio.RXD) end
@@ -203,8 +201,7 @@ class micradar : Driver
   def id_data(msg)
     var prop = self.word[msg[2]]["word"][msg[3]].find("properties")
     var data = msg[6]
-    var result = prop != nil ? prop.find(data) : data
-    return result
+    return prop != nil ? prop.find(data) : data
   end
 
   def id_name(msg)
@@ -237,22 +234,18 @@ class micradar : Driver
     val.insert(field, data)
     result.insert(cw, val)
 
-    # FIX: use actual variables (cw/field) instead of undefined a1/a2
+    # FIX: use real keys (cw/field) instead of undefined a1/a2
     if self.buffer.find(cw) != nil
       if self.buffer[cw].find(field) != data
         self.buffer[cw].setitem(field, data)
         print(f"Buffer update {cw}: {field} with {data}")
-
-        # Immediate per-field publish
-        var pubtopic = "tele/" + topic + "/SENSOR"
-        var mp = f"{{\"{self.sensorname}\":{json.dump(result)}}}"
-        mqtt.publish(pubtopic, mp, false)
+        _pub({ "R24DVD1": result })
       end
     else
       self.publish2log(f"{field}: {data}", 2)
     end
 
-    # --- NEW: keep live Human state in sync and derive Presence ---
+    # Keep live Human state in sync and derive Presence
     if cw == self.word[0x80]["name"]   # "Human"
       if field == "Activity"
         var act = str(data)
@@ -278,9 +271,7 @@ class micradar : Driver
     if self.cfg_buffer.find(cwname) != nil
       if self.cfg_buffer[cwname].find(field)
         self.cfg_buffer[cwname].setitem(field, data)
-        var pubtopic = "stat/" + topic + "/CONFIG"
-        var mp = f"{{\"{self.sensorname}\":{json.dump(result)}}}"
-        mqtt.publish(pubtopic, mp, false)
+        mqtt.publish("stat/" + topic + "/CONFIG", f"{{\"{self.sensorname}\":{json.dump(result)}}}", false)
       end
     else
       self.publish2log(f"{field}: {data}", 2)
@@ -288,7 +279,7 @@ class micradar : Driver
   end
 
   def calc_distance(d)
-    d = real(d) * 0.5
+    d = real(d) * 0.5    # 0.5 m steps
     return d
   end
 
@@ -311,9 +302,7 @@ class micradar : Driver
 
     micradar.op_buffer = result
     self.publish2log(json.dump(result), 2)
-
-    var pubtopic = "tele/" + topic + "/OPENPROTOCOL"
-    mqtt.publish(pubtopic, json.dump(result), false)
+    mqtt.publish("tele/" + topic + "/OPENPROTOCOL", json.dump(result), false)
   end
 
   def every_50ms()
@@ -383,14 +372,12 @@ tasmota.add_driver(radar)
 radar.buffer_init()
 
 # ----- Console commands -----
-
 def set_scene(cmd, idx, payload, payload_json)
-  payload = int(payload)
   var opt = [1,2,3,4]
   var ctl = "05"
   var cmw = "07"
   var val = "0F"
-  if opt.find(payload) != nil
+  if opt.find(int(payload)) != nil
     val = f"{payload:.2i}"
   else
     cmw = "87"
@@ -421,7 +408,7 @@ def set_delay(cmd, idx, payload, payload_json)
   var ctrlword = "80"
   var cmndword = "0A"
   var val = "0F"
-  if int(payload) <= 8 && int(payload) >= 0   # FIX: allow 0..8
+  if int(payload) <= 8 && int(payload) >= 0   # allow 0..8
     val = f"{payload:.2i}"
   else
     cmndword = int(cmndword) + 128
@@ -446,4 +433,4 @@ def restart_cmnd(cmd, idx, payload, payload_json)
 end
 tasmota.add_cmd('RadarRestart', restart_cmnd)
 
-tasmota.add_rule("system#boot", /-> radar.restart() )  # restart radar on boot to populate sensors
+tasmota.add_rule("system#boot", /-> radar.restart() )
