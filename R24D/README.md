@@ -1,9 +1,9 @@
 # R24D
+### Tasmota configure
+- {"NAME":"Human Detection Sensor Kit","GPIO":[0,0,0,0,3232,3200,640,608,0,0,0,0,0,0,0,0,0,0,0,0,0,0],"FLAG":0,"BASE":1}
 
 
-
-Tasmota install 
-
+### Tasmota install  mmwave driver
 Console:
 - Backlog UfsDelete2 r24d.bec; UfsDelete2 r24d.be
 - Br tasmota.urlfetch("https://raw.githubusercontent.com/Flyguy86/berry-drivers/refs/heads/main/R24D/r24d.be","r24d.be")
