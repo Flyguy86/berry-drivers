@@ -1,4 +1,8 @@
 # R24D
+### USB flash Tasmota, base firmware
+- need esp flash commands
+- https://ota.tasmota.com/tasmota32/tasmota32c3.factory.bin
+
 ### Tasmota configure
 - {"NAME":"Human Detection Sensor Kit","GPIO":[0,0,0,0,3232,3200,640,608,0,0,0,0,0,0,0,0,0,0,0,0,0,0],"FLAG":0,"BASE":1}
 
