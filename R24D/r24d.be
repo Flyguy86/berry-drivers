@@ -1,6 +1,5 @@
-# Seeed MR24HPC1 / MicRadar R24DVD1 24 GHz mmWave radar – Tasmota Berry driver
-# Base: blakadder/berry-drivers R24D (GPL-3.0)
-# Edits: strict-mode fixes; MQTT publishing (no tasmota.publish_sensor); live Presence/Activity/Motion; SetDelay 0..8
+# Seeed MR24HPC1 / MicRadar R24DVD1 – Tasmota Berry driver
+# Edits: strict-mode fixes; MQTT publish via mqtt only; de-dupe Presence/Activity/Motion; silent BMP; SetDelay 0..8
 
 import string
 import mqtt
@@ -8,11 +7,11 @@ import json
 
 var topic = tasmota.cmd('Status ', true)['Status']['Topic']
 
-# --- Live MQTT state helper with de-dupe -------------------------------------
+# --- Live state + de-dupe -----------------------------------------------------
 var _r24d = { "Presence":"Unknown", "Activity":"None", "Motion":"None", "Body Movement Parameter":0 }
-var _r24d_last = { "Presence": nil, "Activity": nil, "Motion": nil }   # last published
+var _r24d_last = { "Presence": nil, "Activity": nil, "Motion": nil }
 
-def _pub(x)          # existing helper used elsewhere in your file
+def _pub(x)
   mqtt.publish("tele/" + topic + "/SENSOR", json.dump(x), false)
 end
 
@@ -20,24 +19,23 @@ def _r24d_publish()
   _pub({ "R24DVD1": { "Human": _r24d } })
 end
 
-# presence/activity/motion/bmp, publish? (nil => true)
+# presence, activity, motion, bmp, publish? (nil => true)
 def _r24d_set_opt(presence, activity, motion, bmp, publish)
   if publish == nil publish = true end
 
-  # update fields (bmp can be silent)
   if presence != nil _r24d["Presence"] = presence end
   if activity != nil _r24d["Activity"] = activity end
   if motion   != nil _r24d["Motion"]   = motion   end
   if bmp      != nil _r24d["Body Movement Parameter"] = bmp end
 
-  # derive presence from activity/bmp
+  # derive presence from activity/bmp (but we may still suppress publish)
   var act = _r24d["Activity"]
   var ib  = int(_r24d["Body Movement Parameter"])
   if (act == "Active") || (act == "Still") || (ib > 0)
     _r24d["Presence"] = "Occupied"
   end
 
-  # only publish if Presence/Activity/Motion CHANGED vs last publish
+  # only publish on change of Presence/Activity/Motion
   var changed = false
   if _r24d_last["Presence"] != _r24d["Presence"] changed = true end
   if _r24d_last["Activity"] != _r24d["Activity"] changed = true end
@@ -45,16 +43,13 @@ def _r24d_set_opt(presence, activity, motion, bmp, publish)
 
   if publish && changed
     _r24d_publish()
-    # update last-published snapshot
     _r24d_last["Presence"] = _r24d["Presence"]
     _r24d_last["Activity"] = _r24d["Activity"]
     _r24d_last["Motion"]   = _r24d["Motion"]
   end
 end
 
-# Optional: query current live state from the console
 tasmota.add_cmd("R24DState", def(cmd,idx,p,pj) tasmota.resp_cmnd_done_json({"R24DVD1":{"Human":_r24d}}) end)
-# ----------------------------------------------------------------------------- 
 # -----------------------------------------------------------------------------
 
 
@@ -115,12 +110,12 @@ class micradar : Driver
       0x0A:{ "name":"Presence Distance", "config":true },
       0x0B:{ "name":"Motion Distance",   "config":true },
       0x0C:{ "name":"Motion Trigger Time", "config":true },
-      0x0C:{ "name":"Motion to Rest Time", "config":true },   # (duplicate key kept as in upstream)
+      0x0C:{ "name":"Motion to Rest Time", "config":true },   # duplicate kept
       0x0D:{ "name":"Unoccupied State Time", "config":true }
     }}
   }
 
-  var ser  # serial port
+  var ser
 
   def write2buffer(l, target)
     target.insert(l.find("name"), l.find("properties") != nil ? l["properties"][0x00] : 0)
@@ -192,7 +187,7 @@ class micradar : Driver
 
   def encode(ctrlword, cmndword, data)
     var d = bytes().fromhex(data)
-    var b = self.header          # FIX: declare local 'b'
+    var b = self.header      # local 'b' declared
     b += bytes(ctrlword)
     b += bytes(cmndword)
     b.add(size(d), -2)
@@ -254,8 +249,7 @@ class micradar : Driver
     val.insert(field, data)
     result.insert(cw, val)
 
-# FIX: use real keys (cw/field) instead of undefined a1/a2    
-# publish per-field ONLY for non-Human OR Human fields that are NOT Presence/Activity/Motion/BMP
+    # Only direct-publish for non-Human or Human fields OTHER than Presence/Activity/Motion/BMP
     var is_human = (cw == self.word[0x80]["name"])
     var is_bmp   = (is_human && field == "Body Movement Parameter")
     var is_act   = (is_human && field == "Activity")
@@ -275,7 +269,7 @@ class micradar : Driver
       self.publish2log(f"{field}: {data}", 2)
     end
 
-    # live-state machine (BMP never publishes; P/A/M only publish on change)
+    # Keep live state in sync (BMP silent; P/A/M publish only on change)
     if is_human
       if is_act
         var act = str(data)
@@ -289,13 +283,12 @@ class micradar : Driver
         _r24d_set_opt(str(data), nil, nil, nil, true)
       end
     end
-
-
+  end
 
   def parse_config(msg)
     var field   = self.id_name(msg)
     var data    = self.id_data(msg)
-    var cwname  = self.word[0x05]["name"]   # "Status"
+    var cwname  = self.word[0x05]["name"]
     var result  = {}
     result.insert(field, data)
 
@@ -310,17 +303,14 @@ class micradar : Driver
   end
 
   def calc_distance(d)
-    d = real(d) * 0.5    # 0.5 m steps
+    d = real(d) * 0.5
     return d
   end
 
   def parse_openprotocol(msg)
     # 0: Presence energy, 1: Static dist, 2: Motion energy, 3: Motion dist, 4: Speed
-    var field = self.id_name(msg)
-    var cw    = self.id_cw(msg)
     var data  = []
     var result = {}
-
     for i:6..5+msg[5]
       data.push(msg.get(i,1))
     end
@@ -330,7 +320,6 @@ class micradar : Driver
     for i:0..size(data)-1
       result.insert(self.word[msg[2]]["word"][msg[3]]["properties"][i], data[i])
     end
-
     micradar.op_buffer = result
     self.publish2log(json.dump(result), 2)
     mqtt.publish("tele/" + topic + "/OPENPROTOCOL", json.dump(result), false)
@@ -351,8 +340,7 @@ class micradar : Driver
               if cmndword >= 128
                 msg.set(3, (cmndword - 128), 1)
               end
-
-              if msg[2] == 0x05 || self.word[msg[2]]['word'][msg[3]].find("config")
+              if msg[2] == 0x05 || self.word[msg[2]]["word"][msg[3]].find("config")
                 self.parse_config(msg)
                 if msg[3] == 0x01
                   self.get_config()
@@ -361,7 +349,9 @@ class micradar : Driver
                 print("Open report received", msg)
                 if msg[5] == 0x05
                   self.parse_openprotocol(msg)
-                  if msg[3] == 0x00 self.opbool = msg[6] end
+                  if msg[3] == 0x00
+                    self.opbool = msg[6]
+                  end
                 else
                   self.parse_message(msg)
                 end
@@ -396,13 +386,14 @@ class micradar : Driver
     end
     tasmota.web_send(msg.concat())
   end
-end
+end  # <<< end class micradar
 
+# ----- instantiate + register -------------------------------------------------
 radar = micradar()
 tasmota.add_driver(radar)
 radar.buffer_init()
 
-# ----- Console commands -----
+# ----- Console commands -------------------------------------------------------
 def set_scene(cmd, idx, payload, payload_json)
   var opt = [1,2,3,4]
   var ctl = "05"
@@ -439,7 +430,7 @@ def set_delay(cmd, idx, payload, payload_json)
   var ctrlword = "80"
   var cmndword = "0A"
   var val = "0F"
-  if int(payload) <= 8 && int(payload) >= 0   # allow 0..8
+  if int(payload) <= 8 && int(payload) >= 0
     val = f"{payload:.2i}"
   else
     cmndword = int(cmndword) + 128
